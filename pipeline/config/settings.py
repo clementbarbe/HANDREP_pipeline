@@ -1,8 +1,5 @@
 """
 Centralised default values and scientific constants.
-
-Every tunable parameter lives here so that downstream modules
-never hard-code magic numbers.
 """
 
 import numpy as np
@@ -33,7 +30,8 @@ IMAGE_HEIGHT = 1080
 IMAGE_CENTER = np.array([IMAGE_WIDTH / 2, IMAGE_HEIGHT / 2], dtype=float)
 
 # ── Checkerboard ──────────────────────────────────────────
-CHECKERBOARD_SIZE = (9, 6)  # internal corners (cols, rows)
+CHECKERBOARD_SIZE = (9, 6)   # internal corners (cols, rows)
+SQUARE_SIZE_CM    = 2.4      # side length of one black square
 
 # ── Mathematical correction fallback ──────────────────────
 CAMERA_HEIGHT_CM     = 27
@@ -55,6 +53,7 @@ def default_config():
         "data_dir":          "data",
         "checkerboard":      True,
         "checkerboard_size": CHECKERBOARD_SIZE,
+        "square_size_cm":    SQUARE_SIZE_CM,
         "force":             True,
         "subjects_filter":   None,
         "skip_figures":      False,

@@ -1,11 +1,12 @@
 """
-Checkerboard-based homography estimation from two PNG images.
+Checkerboard-based homography + metric scale (px ↔ cm).
 
+Uses two PNG images:
 * ``table.png``   — checkerboard at hand level
 * ``plateau.png`` — checkerboard at pointing-board level
 
-The homography maps *plateau* coordinates → *table* coordinates,
-thus correcting the parallax between the two planes.
+The homography maps *plateau* → *table*.
+The metric scale is derived from the **table** corners (hand plane).
 """
 
 import logging
@@ -19,6 +20,8 @@ try:
 except ImportError:
     _HAS_CV2 = False
 
+from pipeline.config.settings import SQUARE_SIZE_CM
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,18 +29,15 @@ def _require_cv2():
     if not _HAS_CV2:
         raise ImportError(
             "OpenCV is required for checkerboard calibration.  "
-            "Install it: pip install opencv-python"
+            "Install it:  pip install opencv-python"
         )
 
 
+# ── Corner detection ──────────────────────────────────────
+
 def find_checkerboard_corners(image_path, board_size=(9, 6)):
     """
-    Detect internal corners of a checkerboard with sub-pixel accuracy.
-
-    Parameters
-    ----------
-    image_path : Path
-    board_size : tuple (cols, rows) of internal corners
+    Detect internal corners with sub-pixel accuracy.
 
     Returns
     -------
@@ -69,16 +69,63 @@ def find_checkerboard_corners(image_path, board_size=(9, 6)):
     return corners.reshape(-1, 2)
 
 
-def compute_homography_from_images(table_path, plateau_path, board_size=(9, 6)):
+# ── Metric scale ──────────────────────────────────────────
+
+def compute_px_per_cm(corners, square_size_cm=SQUARE_SIZE_CM):
     """
-    Compute the *plateau → table* homography.
+    Estimate the pixel-to-centimetre ratio from checkerboard corners.
+
+    Strategy: for each corner, find its nearest neighbour (which lies
+    one square away). The median of these distances, divided by the
+    known square size, gives **px_per_cm**.
+
+    Parameters
+    ----------
+    corners : ndarray (N, 2)
+        Detected corners in pixel coordinates.
+    square_size_cm : float
+        Physical side length of one checkerboard square.
+
+    Returns
+    -------
+    float
+        Pixels per centimetre.
+    """
+    n = len(corners)
+    # Pairwise distances (N, N)
+    diffs = corners[:, np.newaxis, :] - corners[np.newaxis, :, :]
+    dists = np.linalg.norm(diffs, axis=2)
+    np.fill_diagonal(dists, np.inf)
+
+    # Nearest-neighbour distance for each corner
+    nn_dists = dists.min(axis=1)
+
+    # Median is robust to boundary effects
+    median_nn_px = float(np.median(nn_dists))
+    px_per_cm = median_nn_px / square_size_cm
+
+    logger.info(
+        f"Metric scale: median NN = {median_nn_px:.1f} px → "
+        f"{px_per_cm:.2f} px/cm  ({1.0 / px_per_cm:.4f} cm/px)"
+    )
+    return px_per_cm
+
+
+# ── Homography from images ────────────────────────────────
+
+def compute_homography_from_images(
+    table_path, plateau_path, board_size=(9, 6), square_size_cm=SQUARE_SIZE_CM,
+):
+    """
+    Compute the *plateau → table* homography **and** the metric scale.
 
     Returns
     -------
     dict
-        Keys: ``homography_matrix``, ``camera_matrix`` (None),
+        ``homography_matrix``, ``camera_matrix`` (None),
         ``dist_coeffs`` (None), ``corners_table``, ``corners_plateau``,
-        ``n_inliers``, ``n_total``, ``mean_reprojection_error``.
+        ``n_inliers``, ``n_total``, ``mean_reprojection_error``,
+        ``px_per_cm``, ``cm_per_px``.
     """
     _require_cv2()
 
@@ -95,6 +142,7 @@ def compute_homography_from_images(table_path, plateau_path, board_size=(9, 6)):
             f"Corner count mismatch: table={len(ct)}, plateau={len(cp)}"
         )
 
+    # Homography (RANSAC)
     H, mask = cv2.findHomography(
         cp.astype(np.float64), ct.astype(np.float64), cv2.RANSAC, 5.0,
     )
@@ -108,13 +156,18 @@ def compute_homography_from_images(table_path, plateau_path, board_size=(9, 6)):
     reproj = apply_homography(cp, H)
     err = float(np.linalg.norm(reproj - ct, axis=1).mean())
 
+    # Metric scale from table-level corners (= hand plane)
+    px_cm = compute_px_per_cm(ct, square_size_cm)
+
     return {
-        "homography_matrix": H,
-        "camera_matrix": None,
-        "dist_coeffs": None,
-        "corners_table": ct,
-        "corners_plateau": cp,
-        "n_inliers": n_inliers,
-        "n_total": len(cp),
-        "mean_reprojection_error": err,
+        "homography_matrix":        H,
+        "camera_matrix":            None,
+        "dist_coeffs":              None,
+        "corners_table":            ct,
+        "corners_plateau":          cp,
+        "n_inliers":                n_inliers,
+        "n_total":                  len(cp),
+        "mean_reprojection_error":  err,
+        "px_per_cm":                px_cm,
+        "cm_per_px":                1.0 / px_cm,
     }

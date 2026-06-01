@@ -3,8 +3,8 @@
 """
 workflow.py — Pipeline orchestration.
 
-This module contains *no* scientific logic. It calls the specialised
-modules in the correct order and manages inter-step dependencies.
+No scientific logic here.  This module calls specialised modules
+in the correct order and manages inter-step dependencies.
 """
 
 import logging
@@ -33,6 +33,7 @@ from pipeline.transforms.errors import (
     compute_errors,
     compute_reference_scale,
     add_normalized_errors,
+    add_cm_errors,
 )
 from pipeline.analysis.summary import (
     compute_summary,
@@ -51,7 +52,7 @@ from pipeline.export.reports import export_all_csvs
 
 
 # ────────────────────────────────────────────────────────────
-# Calibration (computed once for the whole run)
+# Calibration (once for the whole run)
 # ────────────────────────────────────────────────────────────
 
 def _load_calibration(paths, cfg):
@@ -71,15 +72,20 @@ def _load_calibration(paths, cfg):
 
     try:
         calib = compute_homography_from_images(
-            table, plateau, cfg["checkerboard_size"],
+            table, plateau,
+            cfg["checkerboard_size"],
+            cfg["square_size_cm"],
         )
         success(
             f"Homography computed  "
             f"({calib['n_inliers']}/{calib['n_total']} inliers, "
             f"reproj = {calib['mean_reprojection_error']:.2f} px)"
         )
+        success(
+            f"Metric scale: {calib['px_per_cm']:.1f} px/cm  "
+            f"({calib['cm_per_px']:.4f} cm/px)"
+        )
 
-        # Optional verification figure
         if not cfg["skip_figures"]:
             from pipeline.visualization.calibration_check import (
                 plot_calibration_check,
@@ -97,12 +103,12 @@ def _load_calibration(paths, cfg):
 
 
 # ────────────────────────────────────────────────────────────
-# Processing a single subject × session pair
+# Single pair processing
 # ────────────────────────────────────────────────────────────
 
 def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
-    """Run the full pipeline for one (subject, session) pair."""
     logger = logging.getLogger(__name__)
+    cm_per_px = calib.get("cm_per_px") if calib else None
 
     # 1 — Load
     pred_df = load_predictions(pred_path)
@@ -114,34 +120,39 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
 
     # 3 — Merge
     merged = merge_predictions_and_references(pred_df, ref_df)
-    n_missing = report_missing_references(merged)
-    if n_missing:
-        warning(f"{n_missing} row(s) without reference data")
+    n_miss = report_missing_references(merged)
+    if n_miss:
+        warning(f"{n_miss} row(s) without reference data")
 
     # 4 — Geometric correction
     merged = apply_geometry_correction(merged, calib, cfg)
     info(f"Correction method: {merged['correction_method'].iloc[0]}")
 
-    # 5 — Errors
+    # 5 — Errors (px + normalised + cm)
     merged = compute_errors(merged)
     scale = compute_reference_scale(merged)
     merged = add_normalized_errors(merged, scale)
-    info(
-        f"Mean Euclidean error: {merged['error_eucl'].mean():.1f} px "
-        f"(±{merged['error_eucl'].std():.1f})"
-    )
+    merged = add_cm_errors(merged, cm_per_px)
+
+    mean_err = merged["error_eucl"].mean()
+    std_err = merged["error_eucl"].std()
+    msg = f"Mean error: {mean_err:.1f} ± {std_err:.1f} px"
+    if cm_per_px is not None:
+        msg += f"  =  {mean_err * cm_per_px:.2f} ± {std_err * cm_per_px:.2f} cm"
+    info(msg)
 
     # 6 — Analysis
-    summary = compute_summary(merged)
-    biomech = compute_biomechanical_metrics(merged)
+    summary  = compute_summary(merged)
+    biomech  = compute_biomechanical_metrics(merged, cm_per_px)
     positions = extract_landmark_positions(merged)
     stats_lm = compute_per_landmark_stats(merged)
     stats_fg = compute_per_finger_stats(merged)
+
     finger_lengths = compute_finger_lengths(
-        positions["real"], positions["estimated_corr"],
+        positions["real"], positions["estimated_corr"], cm_per_px,
     )
     knuckle_widths = compute_knuckle_widths(
-        positions["real"], positions["estimated_corr"],
+        positions["real"], positions["estimated_corr"], cm_per_px,
     )
     shape_indices = compute_shape_indices(
         positions["real"], positions["estimated_corr"],
@@ -150,7 +161,17 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         positions["real"], positions["estimated_corr"],
     )
 
-    # Package for downstream modules
+    # Print cm summary when available
+    if cm_per_px is not None and not finger_lengths.empty:
+        info("Finger lengths (cm):")
+        for _, r in finger_lengths.iterrows():
+            info(
+                f"  {r['finger']:8s}  "
+                f"real {r['length_real_cm']:5.2f} cm  "
+                f"est {r['length_est_cm']:5.2f} cm  "
+                f"({r['pct_overestimation']:+.1f}%)"
+            )
+
     analysis = dict(
         df=merged,
         subject=subject,
@@ -164,6 +185,7 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         knuckle_widths=knuckle_widths,
         shape_indices=shape_indices,
         tps=tps_results,
+        cm_per_px=cm_per_px,
     )
 
     # 7 — Export
@@ -181,9 +203,8 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         info(f"Figures → {fig_dir.relative_to(paths['processed_dir'])}")
 
     logger.info(
-        f"DONE | {subject} {session} | "
-        f"trials={len(merged)} | "
-        f"method={merged['correction_method'].iloc[0]}"
+        "DONE | %s %s | trials=%d | method=%s",
+        subject, session, len(merged), merged["correction_method"].iloc[0],
     )
 
 
@@ -194,11 +215,6 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
 def run_pipeline(cfg=None):
     """
     Execute the full multi-subject pipeline.
-
-    Parameters
-    ----------
-    cfg : dict or None
-        Configuration dictionary. Uses ``default_config()`` if *None*.
 
     Returns
     -------
@@ -213,51 +229,42 @@ def run_pipeline(cfg=None):
     total_steps = 4
     n_processed = 0
 
-    # ── Step 1 : discover ──────────────────────────────────
+    # ── 1 : discover ──────────────────────────────────────
     step(1, total_steps, "Discovering prediction files…")
     ok, msg = check_prediction_directory(paths["nn_dir"])
     if not ok:
-        console_error(msg)
-        return 0
+        console_error(msg); return 0
 
     pred_files = find_prediction_files(paths["nn_dir"])
     if not pred_files:
-        warning("No prediction CSV files found")
-        return 0
+        warning("No prediction CSV files found"); return 0
     info(f"Found {len(pred_files)} prediction file(s)")
 
-    # ── Step 2 : calibration ───────────────────────────────
+    # ── 2 : calibration ──────────────────────────────────
     step(2, total_steps, "Computing geometric calibration…")
     calib = _load_calibration(paths, cfg)
 
-    # ── Step 3 : processing loop ───────────────────────────
+    # ── 3 : processing loop ──────────────────────────────
     step(3, total_steps, "Processing subject × session pairs…")
 
     for pred_path in pred_files:
         try:
             subject, session = parse_pair_from_filename(pred_path.name)
         except ValueError as exc:
-            warning(f"Skipping {pred_path.name}: {exc}")
-            continue
+            warning(f"Skipping {pred_path.name}: {exc}"); continue
 
-        # Optional subject filter
         if cfg["subjects_filter"] and subject not in cfg["subjects_filter"]:
-            info(f"Skipping {subject} (not in filter)")
-            continue
+            info(f"Skipping {subject} (not in filter)"); continue
 
-        # Incremental: skip if output exists
         from pipeline.config.paths import trials_output_path
         out = trials_output_path(paths["processed_dir"], subject, session)
         if out.exists() and not cfg["force"]:
-            info(f"SKIP {subject} / {session} — output already exists")
-            continue
+            info(f"SKIP {subject} / {session} — output already exists"); continue
 
-        # Reference file
         ref_path = paths["ref_dir"] / f"{subject}_{session}_ref.csv"
         ok, msg = check_reference_file(ref_path)
         if not ok:
-            warning(f"{subject} / {session}: {msg}")
-            continue
+            warning(f"{subject} / {session}: {msg}"); continue
 
         divider(char="─", width=50)
         info(f"▶ {subject} / {session}")
@@ -272,8 +279,10 @@ def run_pipeline(cfg=None):
             console_error(f"{subject} / {session}: {exc}")
             logger.error(traceback.format_exc())
 
-    # ── Step 4 : summary ───────────────────────────────────
+    # ── 4 : summary ──────────────────────────────────────
     step(4, total_steps, "Final summary")
-    info(f"Pairs processed successfully: {n_processed}/{len(pred_files)}")
+    info(f"Pairs processed: {n_processed}/{len(pred_files)}")
+    if calib and calib.get("cm_per_px"):
+        info(f"Metric scale used: {calib['cm_per_px']:.4f} cm/px")
 
     return n_processed
