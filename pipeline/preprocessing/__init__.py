@@ -1,0 +1,1 @@
+"""Image collection and data validation."""

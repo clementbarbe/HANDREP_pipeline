@@ -1,0 +1,1 @@
+"""Geometric registration — calibration and correction."""

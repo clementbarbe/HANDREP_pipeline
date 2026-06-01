@@ -1,0 +1,1 @@
+"""Optional PyQt6 graphical interface for interactive prediction."""
