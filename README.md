@@ -28,21 +28,22 @@ python run.py --subjects S1 S3 --skip-figures
 
 ## Project structure
 
-Directory	Role
-pipeline/config	Settings, path resolution
-pipeline/io	File discovery, loading, writing
-pipeline/preprocessing	Image collection, data validation
-pipeline/registration	Checkerboard calibration, correction
-pipeline/segmentation	NN architectures, inference
-pipeline/transforms	Merging, error computation
-pipeline/quality_control	Integrity checks
-pipeline/analysis	Statistics, biomechanics, TPS
-pipeline/visualization	All figure generation
-pipeline/export	CSV report exports
-pipeline/utils	Logging, console output
-pipeline/gui	PyQt6 interactive interface
-pipeline/tools	Annotation tool
-Data layout
+    Directory	Role
+    pipeline/config	Settings, path resolution
+    pipeline/io	File discovery, loading, writing
+    pipeline/preprocessing	Image collection, data validation
+    pipeline/registration	Checkerboard calibration, correction
+    pipeline/segmentation	NN architectures, inference
+    pipeline/transforms	Merging, error computation
+    pipeline/quality_control	Integrity checks
+    pipeline/analysis	Statistics, biomechanics, TPS
+    pipeline/visualization	All figure generation
+    pipeline/export	CSV report exports
+    pipeline/utils	Logging, console output
+    pipeline/gui	PyQt6 interactive interface
+    pipeline/tools	Annotation tool
+    
+## Data layout
 
 ```csharp
 data/
