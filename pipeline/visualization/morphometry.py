@@ -1,57 +1,54 @@
-"""Figure 02 — error bar charts and error vectors."""
+"""Figures 03 and 07 — finger lengths, knuckle widths, shape index."""
 
 import matplotlib.pyplot as plt
-from pipeline.config.settings import FINGER_ORDER, FINGER_COLORS
+from pipeline.config.settings import FINGER_COLORS
 
 
-def plot_error_analysis(analysis, output_path, cfg):
-    df = analysis["df"]
-    stats_lm = analysis["stats_landmark"].copy()
-    stats_fg = analysis["stats_finger"]
+def plot_finger_lengths_widths(analysis, output_path, cfg):
+    df_l = analysis["finger_lengths"]
+    df_w = analysis["knuckle_widths"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # A) Per finger
     ax = axes[0]
-    colors = [FINGER_COLORS[f] for f in FINGER_ORDER if f in stats_fg.index]
-    ax.bar(FINGER_ORDER, stats_fg.loc[FINGER_ORDER, "mean_error"],
-           yerr=stats_fg.loc[FINGER_ORDER, "std_error"], capsize=5,
-           color=colors, edgecolor="black", alpha=0.8)
-    ax.set_ylabel("Euclidean error (px)"); ax.set_title("A) Mean error per finger")
+    if not df_l.empty:
+        colors = [FINGER_COLORS[f] for f in df_l["finger"]]
+        ax.bar(df_l["finger"], df_l["pct_overestimation"],
+               color=colors, edgecolor="black", alpha=0.8)
+    ax.axhline(0, color="black", lw=1)
+    ax.set_ylabel("% overestimation")
+    ax.set_title("A) Finger length overestimation")
 
-    # B) Per landmark
     ax = axes[1]
-    stats_lm["label"] = stats_lm["finger"] + "\n" + stats_lm["zone"]
-    idx_map = {f: i for i, f in enumerate(FINGER_ORDER)}
-    stats_lm["_ord"] = stats_lm["finger"].map(idx_map)
-    stats_lm = stats_lm.sort_values(["_ord", "zone"])
-    xp = range(len(stats_lm))
-    bc = [FINGER_COLORS[f] for f in stats_lm["finger"]]
-    ax.bar(xp, stats_lm["mean_error"], yerr=stats_lm["std_error"],
-           capsize=4, color=bc, edgecolor="black", alpha=0.8)
-    ax.set_xticks(list(xp)); ax.set_xticklabels(stats_lm["label"], fontsize=9)
-    ax.set_ylabel("Euclidean error (px)"); ax.set_title("B) Error per landmark")
+    if not df_w.empty:
+        ax.bar(df_w["pair"], df_w["pct_overestimation"],
+               color="steelblue", edgecolor="black", alpha=0.8)
+    ax.axhline(0, color="black", lw=1)
+    ax.set_ylabel("% overestimation")
+    ax.set_title("B) Knuckle spacing overestimation")
 
-    # C) Error vectors
-    ax = axes[2]
-    me = (df.groupby(["finger", "zone"])
-          [["x_est_corr", "y_est_corr", "x_real", "y_real"]]
-          .mean().reset_index())
-    for _, r in me.iterrows():
-        c = FINGER_COLORS[r["finger"]]
-        ax.scatter(r["x_real"], r["y_real"], c="black", s=80, zorder=5)
-        ax.scatter(r["x_est_corr"], r["y_est_corr"], c=c, s=80,
-                   zorder=5, marker="x", linewidths=2)
-        ax.annotate("", xy=(r["x_est_corr"], r["y_est_corr"]),
-                    xytext=(r["x_real"], r["y_real"]),
-                    arrowprops=dict(arrowstyle="->", color=c, lw=2))
-    ax.scatter([], [], c="black", marker="o", label="Reference")
-    ax.scatter([], [], c="gray", marker="x", linewidths=2, label="Estimated (mean)")
-    ax.legend(fontsize=10)
-    ax.set_xlabel("X (px)"); ax.set_ylabel("Y (px)")
-    ax.set_title("C) Error vectors (ref → est)")
-    ax.invert_yaxis(); ax.set_aspect("equal")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
 
+
+def plot_shape_index(analysis, output_path, cfg):
+    si = analysis["shape_indices"]
+    if si is None:
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    vals = [si["real"], si["estimated"]]
+    bars = ax.bar(
+        ["Actual hand", "Proprioceptive\nrepresentation"],
+        vals, color=["#2c7bb6", "#d7191c"], edgecolor="black", width=0.5,
+    )
+    ax.set_ylabel("Shape Index (100 × W / L)")
+    ax.set_title("Napier Shape Index")
+    ax.axhline(si["real"], ls="--", color="gray", alpha=0.5)
+    for bar, v in zip(bars, vals):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
+                f"{v:.1f}", ha="center", fontsize=12, fontweight="bold")
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
