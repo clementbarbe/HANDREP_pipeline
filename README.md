@@ -16,15 +16,18 @@ python -m pipeline.gui.app
 
 # 4. Run the full analysis pipeline
 python run.py
+```
 
-CLI options
+## CLI options
 
-css
+``` css
 python run.py --help
 python run.py --force --no-checkerboard
 python run.py --subjects S1 S3 --skip-figures
+```
 
-Project structure
+## Project structure
+
 Directory	Role
 pipeline/config	Settings, path resolution
 pipeline/io	File discovery, loading, writing
@@ -41,15 +44,15 @@ pipeline/gui	PyQt6 interactive interface
 pipeline/tools	Annotation tool
 Data layout
 
-csharp
+```csharp
 data/
 ├── raw/              # Acquisition images (sub-S1/ses-1/*.jpg)
 ├── ref/              # Reference annotations (*_ref.csv)
 ├── calibration/      # table.png + plateau.png
 ├── nn_outputs/       # NN prediction CSVs
 └── processed/        # Pipeline outputs (per subject)
-
-Calibration
+```
+## Calibration
 
 Place two photos of the same checkerboard in data/calibration/:
 
