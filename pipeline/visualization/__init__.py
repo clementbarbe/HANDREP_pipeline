@@ -30,11 +30,13 @@ def generate_all_figures(analysis, output_dir, cfg):
     from .temporal import plot_error_over_time
     from .deformation import plot_deformation_maps
     from .correction_effect import plot_correction_effect
+    from .coupling import plot_coupled_vs_uncoupled
 
     plot_estimated_positions(analysis, output_dir / "01_estimated_positions.png", cfg)
     plot_error_analysis(analysis, output_dir / "02_error_analysis.png", cfg)
     plot_finger_lengths_widths(analysis, output_dir / "03_finger_lengths_widths.png", cfg)
     plot_error_over_time(analysis, output_dir / "04_error_over_time.png", cfg)
-    plot_deformation_maps(analysis, output_dir, cfg)  # writes 05 + 06
+    plot_deformation_maps(analysis, output_dir, cfg)           # 05 + 06
     plot_shape_index(analysis, output_dir / "07_shape_index.png", cfg)
     plot_correction_effect(analysis, output_dir / "08_correction_effect.png", cfg)
+    plot_coupled_vs_uncoupled(analysis, output_dir / "09_coupled_vs_uncoupled.png", cfg)

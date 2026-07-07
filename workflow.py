@@ -18,7 +18,6 @@ from pipeline.utils.console import (
 )
 from pipeline.io.discovery import find_prediction_files, parse_pair_from_filename
 from pipeline.io.loader import load_predictions, load_reference
-from pipeline.io.writer import save_trial_csv, save_summary_csv, save_biomech_csv
 from pipeline.preprocessing.validation import validate_subject_session
 from pipeline.quality_control.checks import (
     check_prediction_directory,
@@ -48,6 +47,13 @@ from pipeline.analysis.biomechanics import (
     compute_shape_indices,
 )
 from pipeline.analysis.tps import compute_tps_analysis
+from pipeline.analysis.coupling import (
+    detect_couples,
+    coupling_summary,
+    compute_coupled_finger_lengths,
+    compute_uncoupled_finger_lengths,
+    individual_couple_distances,
+)
 from pipeline.export.reports import export_all_csvs
 
 
@@ -110,25 +116,25 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
     logger = logging.getLogger(__name__)
     cm_per_px = calib.get("cm_per_px") if calib else None
 
-    # 1 — Load
+    # ── 1 — Load ──────────────────────────────────────────
     pred_df = load_predictions(pred_path)
     ref_df = load_reference(ref_path)
     info(f"Loaded {len(pred_df)} predictions, {len(ref_df)} reference landmarks")
 
-    # 2 — Validate
+    # ── 2 — Validate ──────────────────────────────────────
     validate_subject_session(pred_df, ref_df, subject, session)
 
-    # 3 — Merge
+    # ── 3 — Merge ─────────────────────────────────────────
     merged = merge_predictions_and_references(pred_df, ref_df)
     n_miss = report_missing_references(merged)
     if n_miss:
         warning(f"{n_miss} row(s) without reference data")
 
-    # 4 — Geometric correction
+    # ── 4 — Geometric correction ──────────────────────────
     merged = apply_geometry_correction(merged, calib, cfg)
     info(f"Correction method: {merged['correction_method'].iloc[0]}")
 
-    # 5 — Errors (px + normalised + cm)
+    # ── 5 — Errors (px + normalised + cm) ─────────────────
     merged = compute_errors(merged)
     scale = compute_reference_scale(merged)
     merged = add_normalized_errors(merged, scale)
@@ -141,12 +147,26 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         msg += f"  =  {mean_err * cm_per_px:.2f} ± {std_err * cm_per_px:.2f} cm"
     info(msg)
 
-    # 6 — Analysis
-    summary  = compute_summary(merged)
-    biomech  = compute_biomechanical_metrics(merged, cm_per_px)
-    positions = extract_landmark_positions(merged)
-    stats_lm = compute_per_landmark_stats(merged)
-    stats_fg = compute_per_finger_stats(merged)
+    # ── 5b — Coupling detection ───────────────────────────
+    merged = detect_couples(merged)
+
+    cs = coupling_summary(merged)
+    info("Coupling analysis:")
+    for finger in [f for f in FINGER_ORDER if f in cs]:
+        c = cs[finger]
+        info(
+            f"  {finger:8s}  "
+            f"{c['coupled']:2d} coupled  "
+            f"{c['uncoupled']:2d} uncoupled  "
+            f"({c['couples_Z1Z2']} Z1→Z2, {c['couples_Z2Z1']} Z2→Z1)"
+        )
+
+    # ── 6 — Analysis ──────────────────────────────────────
+    summary    = compute_summary(merged)
+    biomech    = compute_biomechanical_metrics(merged, cm_per_px)
+    positions  = extract_landmark_positions(merged)
+    stats_lm   = compute_per_landmark_stats(merged)
+    stats_fg   = compute_per_finger_stats(merged)
 
     finger_lengths = compute_finger_lengths(
         positions["real"], positions["estimated_corr"], cm_per_px,
@@ -161,17 +181,55 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         positions["real"], positions["estimated_corr"],
     )
 
-    # Print cm summary when available
-    if cm_per_px is not None and not finger_lengths.empty:
-        info("Finger lengths (cm):")
-        for _, r in finger_lengths.iterrows():
-            info(
-                f"  {r['finger']:8s}  "
-                f"real {r['length_real_cm']:5.2f} cm  "
-                f"est {r['length_est_cm']:5.2f} cm  "
-                f"({r['pct_overestimation']:+.1f}%)"
-            )
+    # ── 6b — Coupled / uncoupled finger lengths ──────────
+    fl_coupled = compute_coupled_finger_lengths(
+        merged, positions["real"], cm_per_px,
+    )
+    fl_uncoupled = compute_uncoupled_finger_lengths(
+        merged, positions["real"], cm_per_px,
+    )
+    couple_dists = individual_couple_distances(merged, cm_per_px)
 
+    # Console report
+    if not fl_coupled.empty:
+        info("Coupled finger lengths:")
+        for _, r in fl_coupled.iterrows():
+            if cm_per_px is not None and "length_est_cm" in r:
+                info(
+                    f"  {r['finger']:8s}  "
+                    f"real {r['length_real_cm']:5.2f} cm  "
+                    f"est {r['length_est_cm']:5.2f} cm  "
+                    f"({r['pct_overestimation']:+.1f}%)  "
+                    f"[{r['n_pairs']:.0f} couples]"
+                )
+            else:
+                info(
+                    f"  {r['finger']:8s}  "
+                    f"real {r['length_real']:6.1f} px  "
+                    f"est {r['length_est']:6.1f} px  "
+                    f"({r['pct_overestimation']:+.1f}%)"
+                )
+
+    if not fl_uncoupled.empty:
+        info("Uncoupled finger lengths:")
+        for _, r in fl_uncoupled.iterrows():
+            if cm_per_px is not None and "length_est_cm" in r:
+                info(
+                    f"  {r['finger']:8s}  "
+                    f"real {r['length_real_cm']:5.2f} cm  "
+                    f"est {r['length_est_cm']:5.2f} cm  "
+                    f"({r['pct_overestimation']:+.1f}%)  "
+                    f"[{r['n_z1']:.0f} Z1, {r['n_z2']:.0f} Z2]"
+                )
+            else:
+                info(
+                    f"  {r['finger']:8s}  "
+                    f"real {r['length_real']:6.1f} px  "
+                    f"est {r['length_est']:6.1f} px  "
+                    f"({r['pct_overestimation']:+.1f}%)"
+                )
+
+    # ── Build analysis bundle ─────────────────────────────
     analysis = dict(
         df=merged,
         subject=subject,
@@ -186,15 +244,19 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         shape_indices=shape_indices,
         tps=tps_results,
         cm_per_px=cm_per_px,
+        finger_lengths_coupled=fl_coupled,
+        finger_lengths_uncoupled=fl_uncoupled,
+        couple_distances=couple_dists,
+        coupling_stats=cs,
     )
 
-    # 7 — Export
+    # ── 7 — Export ────────────────────────────────────────
     out_dir = paths["subject_dir_fn"](subject)
     out_dir.mkdir(parents=True, exist_ok=True)
     export_all_csvs(analysis, out_dir, subject, session)
     info("CSV exports saved")
 
-    # 8 — Figures
+    # ── 8 — Figures ───────────────────────────────────────
     if not cfg["skip_figures"]:
         fig_dir = figure_output_dir(paths["processed_dir"], subject, session)
         fig_dir.mkdir(parents=True, exist_ok=True)
@@ -203,8 +265,9 @@ def _process_pair(subject, session, pred_path, ref_path, calib, paths, cfg):
         info(f"Figures → {fig_dir.relative_to(paths['processed_dir'])}")
 
     logger.info(
-        "DONE | %s %s | trials=%d | method=%s",
+        "DONE | %s %s | trials=%d | method=%s | couples=%d",
         subject, session, len(merged), merged["correction_method"].iloc[0],
+        sum(c["n_couples"] for c in cs.values()),
     )
 
 
