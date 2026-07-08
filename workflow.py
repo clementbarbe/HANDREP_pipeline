@@ -10,7 +10,7 @@ in the correct order and manages inter-step dependencies.
 import logging
 import traceback
 
-from pipeline.config.settings import default_config
+from pipeline.config.settings import default_config, FINGER_ORDER
 from pipeline.config.paths import resolve_paths, figure_output_dir
 from pipeline.utils.log import setup_logging
 from pipeline.utils.console import (

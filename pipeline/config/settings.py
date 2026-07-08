@@ -31,7 +31,7 @@ IMAGE_CENTER = np.array([IMAGE_WIDTH / 2, IMAGE_HEIGHT / 2], dtype=float)
 
 # ── Checkerboard ──────────────────────────────────────────
 CHECKERBOARD_SIZE = (9, 6)   # internal corners (cols, rows)
-SQUARE_SIZE_CM    = 2.4      # side length of one black square
+SQUARE_SIZE_CM    = 3.0      # side length of one black square
 
 # ── Mathematical correction fallback ──────────────────────
 CAMERA_HEIGHT_CM     = 27
@@ -41,7 +41,7 @@ MATH_SCALE = CAMERA_HEIGHT_CM / (CAMERA_HEIGHT_CM + BOARD_ABOVE_HAND_CM)
 # ── Neural network ────────────────────────────────────────
 NN_IMG_SIZE     = 512
 NN_HEATMAP_SIZE = 128
-NN_CROP_SIZE    = 64
+NN_CROP_SIZE    = 128      # ← was 64, now 128 to match training
 
 # ── Supported image extensions ────────────────────────────
 IMAGE_GLOBS = ["*.jpg", "*.jpeg", "*.JPG", "*.JPEG"]

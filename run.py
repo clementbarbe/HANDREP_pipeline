@@ -15,7 +15,7 @@ import argparse
 import sys
 import time
 
-from pipeline.config.settings import default_config
+from pipeline.config.settings import default_config, FINGER_ORDER
 from pipeline.utils.console import header, success, warning, divider
 
 
