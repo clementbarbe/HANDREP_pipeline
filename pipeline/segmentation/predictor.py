@@ -1,5 +1,5 @@
 """
-Two-stage inference: coarse localisation then crop-based refinement.
+Two-stage inference: coarse localisation then crop-based refinement (Sub-pixel enabled).
 """
 
 import cv2
@@ -76,7 +76,7 @@ class Predictor:
 
         Returns
         -------
-        (int, int)
+        (float, float) — Sub-pixel accuracy coordinates.
         """
         img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         h_orig, w_orig = img.shape[:2]
@@ -85,24 +85,37 @@ class Predictor:
         tensor = self._to_tensor(img, (NN_IMG_SIZE, NN_IMG_SIZE))
         hm = self.coarse(tensor)
         hx, hy = soft_argmax(hm, beta=100)
+        
+        # Upscale back to original resolution
         coarse_x = hx * w_orig / NN_HEATMAP_SIZE
         coarse_y = hy * h_orig / NN_HEATMAP_SIZE
 
         # Crop
         cx, cy = int(coarse_x), int(coarse_y)
         half = NN_CROP_SIZE // 2
+        
         x1 = max(0, cx - half)
         y1 = max(0, cy - half)
         x2 = min(w_orig, x1 + NN_CROP_SIZE)
         y2 = min(h_orig, y1 + NN_CROP_SIZE)
+        
+        # Safely enforce exact CROP_SIZE bounding box at borders
         x1, y1 = max(0, x2 - NN_CROP_SIZE), max(0, y2 - NN_CROP_SIZE)
 
         crop = img[y1:y2, x1:x2]
         crop_t = self._to_tensor(crop, (NN_CROP_SIZE, NN_CROP_SIZE))
 
-        # Refine
-        offset = self.refine(crop_t)[0].cpu().numpy()
-        final_x = coarse_x + float(offset[0])
-        final_y = coarse_y + float(offset[1])
+        # Refine (outputs normalized [-1.0, 1.0])
+        pred_offset_normalized = self.refine(crop_t)[0].cpu().numpy()
+        
+        # Denormalize offset to pixel scale
+        dx = float(pred_offset_normalized[0]) * half
+        dy = float(pred_offset_normalized[1]) * half
 
-        return int(round(final_x)), int(round(final_y))
+        final_x = coarse_x + dx
+        final_y = coarse_y + dy
+
+        # Return floats to preserve sub-pixel accuracy!
+        # Note: If subsequent functions crash because they expect ints (e.g. cv2.circle), 
+        # wrap the calls with int(round(...)) only at the very end of your display script.
+        return final_x, final_y

@@ -60,13 +60,14 @@ class SimpleHRNet(nn.Module):
 
 class RefineNet(nn.Module):
     """
-    Refine stage: predicts a (dx, dy) offset from a 64×64 crop.
+    Refine stage: predicts a normalized (dx, dy) offset from a 128×128 crop.
+    The offset is constrained to [-1.0, 1.0] via Tanh to prevent directional bias.
 
-    Input  : (B, 3, 64, 64) in [0, 1]
-    Output : (B, 2) — pixel offset.
+    Input  : (B, 3, 128, 128) in [0, 1]
+    Output : (B, 2) — normalized offset.
     """
 
-    CROP_SIZE = 64
+    CROP_SIZE = 128
 
     def __init__(self):
         super().__init__()
@@ -75,8 +76,14 @@ class RefineNet(nn.Module):
             nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
             nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
         )
+        
+        # 128 channels * 16 * 16 spatial dims = 32768
         self.fc = nn.Sequential(
-            nn.Linear(128 * 8 * 8, 256), nn.ReLU(), nn.Linear(256, 2),
+            nn.Linear(128 * 16 * 16, 256), 
+            nn.ReLU(),
+            nn.Dropout(0.1),  # Breaks fixed directional biases
+            nn.Linear(256, 2),
+            nn.Tanh()         # Constrains output between -1.0 and 1.0
         )
 
     def forward(self, x):
