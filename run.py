@@ -31,7 +31,7 @@ def parse_args():
     )
     p.add_argument(
         "--force", action="store_true", default=False,
-        help="Reprocess even if output files already exist",
+        help="Compatibility option; analyses are always recalculated",
     )
     p.add_argument(
         "--no-checkerboard", action="store_true", default=False,
@@ -45,6 +45,14 @@ def parse_args():
         "--skip-figures", action="store_true", default=False,
         help="Skip figure generation (faster processing)",
     )
+    p.add_argument("--output-dir", help="Output directory; allows keeping earlier analyses")
+    p.add_argument("--prediction-dir", help="Read prediction CSVs from this directory")
+    p.add_argument("--allow-fallback", action="store_true", help="Explicitly allow approximate pixel-only analysis without calibration")
+    p.add_argument("--bootstrap-samples", type=int, default=2000, help="Within-session bootstrap replicates (default: 2000)")
+    p.add_argument("--seed", type=int, default=42, help="Reproducible bootstrap seed")
+    p.add_argument("--square-size-cm", type=float, default=None, help="Measured checkerboard square side in cm")
+    p.add_argument("--reference-image", help="Select an annotated reference when several are available")
+    p.add_argument("--max-reference-motion-cm", type=float, help="Reject sessions exceeding this measured reference displacement")
     return p.parse_args()
 
 
@@ -60,6 +68,15 @@ def main():
     cfg["checkerboard"] = not args.no_checkerboard
     cfg["subjects_filter"] = args.subjects
     cfg["skip_figures"] = args.skip_figures
+    cfg["output_dir"] = args.output_dir
+    cfg["prediction_dir"] = args.prediction_dir
+    cfg["allow_fallback"] = args.allow_fallback
+    cfg["bootstrap_samples"] = args.bootstrap_samples
+    cfg["random_seed"] = args.seed
+    cfg["reference_image"] = args.reference_image
+    cfg["max_reference_motion_cm"] = args.max_reference_motion_cm
+    if args.square_size_cm is not None:
+        cfg["square_size_cm"] = args.square_size_cm
 
     # Lazy import so help text displays instantly
     from workflow import run_pipeline

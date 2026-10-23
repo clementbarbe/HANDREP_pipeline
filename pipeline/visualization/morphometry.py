@@ -22,6 +22,8 @@ def plot_finger_lengths_widths(analysis, output_path, cfg):
             df_l["finger"], df_l["pct_overestimation"],
             color=colors, edgecolor="black", alpha=0.8,
         )
+        if "pct_ci_low" in df_l:
+            ax.vlines(range(len(df_l)), df_l.pct_ci_low, df_l.pct_ci_high, color="black", lw=1.5)
         # Annotate with cm values when available
         if cm is not None and "length_real_cm" in df_l.columns:
             for bar, (_, row) in zip(bars, df_l.iterrows()):
@@ -46,6 +48,8 @@ def plot_finger_lengths_widths(analysis, output_path, cfg):
             df_w["pair"], df_w["pct_overestimation"],
             color="steelblue", edgecolor="black", alpha=0.8,
         )
+        if "pct_ci_low" in df_w:
+            ax.vlines(range(len(df_w)), df_w.pct_ci_low, df_w.pct_ci_high, color="black", lw=1.5)
         if cm is not None and "width_real_cm" in df_w.columns:
             for bar, (_, row) in zip(bars, df_w.iterrows()):
                 label = (
@@ -63,6 +67,7 @@ def plot_finger_lengths_widths(analysis, output_path, cfg):
     ax.set_title("B) Knuckle spacing overestimation")
 
     plt.tight_layout()
+    fig.text(.5, .005, "95% conditional bootstrap intervals; fixed reference/calibration", ha="center", fontsize=8)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -78,6 +83,8 @@ def plot_shape_index(analysis, output_path, cfg):
         ["Actual hand", "Proprioceptive\nrepresentation"],
         vals, color=["#2c7bb6", "#d7191c"], edgecolor="black", width=0.5,
     )
+    if "estimated_ci_low" in si:
+        ax.vlines(1, si["estimated_ci_low"], si["estimated_ci_high"], color="black")
     ax.set_ylabel("Shape Index (100 × W / L)")
     ax.set_title("Napier Shape Index")
     ax.axhline(si["real"], ls="--", color="gray", alpha=0.5)

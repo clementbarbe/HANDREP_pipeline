@@ -6,6 +6,10 @@ from pipeline.config.settings import FINGER_ORDER, FINGER_COLORS
 
 def plot_correction_effect(analysis, output_path, cfg):
     df = analysis["df"]
+    df = df.copy()
+    # Both conditions must be represented in the same coordinate frame.
+    df["x_est"] = df["x_est_uncorrected_frame"]
+    df["y_est"] = df["y_est_uncorrected_frame"]
 
     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
 

@@ -17,6 +17,8 @@ def compute_summary(df):
         mean_error_norm=("error_eucl_norm", "mean"),
         std_error_norm=("error_eucl_norm", "std"),
         n_trials=("error_eucl", "count"),
+        n_recorded=("trial", "size"),
+        n_valid_predictions=("qc_valid", "sum"),
     )
     if "error_eucl_cm" in df.columns and df["error_eucl_cm"].notna().any():
         agg["mean_error_cm"] = ("error_eucl_cm", "mean")

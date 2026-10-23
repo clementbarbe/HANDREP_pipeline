@@ -40,3 +40,24 @@ def plot_error_over_time(analysis, output_path, cfg):
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
+
+
+def plot_signed_errors(analysis, output_path, cfg):
+    df = analysis["df"]
+    cm = analysis["cm_per_px"]
+    factor, units = (cm, "cm") if cm is not None else (1., "approximate px")
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    for ax, axis in zip(axes, ("ru", "pd")):
+        for finger in FINGER_ORDER:
+            for zone, marker in (("Z1", "o"), ("Z2", "^")):
+                sub = df[(df.finger == finger) & (df.zone == zone)]
+                ax.scatter(sub.trial, sub["error_" + axis] * factor, c=FINGER_COLORS[finger],
+                           marker=marker, alpha=.7, s=35, label=f"{finger} {zone}")
+        ax.axhline(0, color="black", lw=1)
+        ax.set(xlabel="Acquisition trial", ylabel=f"Signed error ({units})",
+               title="Radioulnar (+ radial)" if axis == "ru" else "Proximodistal (+ distal)")
+    axes[1].legend(fontsize=8, ncol=2)
+    fig.suptitle("Signed anatomical errors over the acquisition sequence")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)

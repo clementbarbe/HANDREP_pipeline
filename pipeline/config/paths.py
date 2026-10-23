@@ -5,7 +5,7 @@ Path resolution — every filesystem location derived from a single root.
 from pathlib import Path
 
 
-def resolve_paths(data_dir="data"):
+def resolve_paths(data_dir="data", output_dir=None, prediction_dir=None):
     """
     Build the full path dictionary from the data root.
 
@@ -14,14 +14,15 @@ def resolve_paths(data_dir="data"):
     dict[str, Path]
     """
     base = Path(data_dir).resolve()
-    processed = base / "processed"
+    processed = Path(output_dir).resolve() if output_dir else base / "processed"
 
     return {
         "data_dir":      base,
         "raw_dir":       base / "raw",
         "ref_dir":       base / "ref",
         "calib_dir":     base / "calibration",
-        "nn_dir":        base / "nn_outputs",
+        "nn_dir":        Path(prediction_dir).resolve() if prediction_dir else base / "nn_outputs",
+        "design_dir":    base / "design",
         "processed_dir": processed,
         "weights_dir":   Path("weights").resolve(),
         "table_image":   base / "calibration" / "table.png",

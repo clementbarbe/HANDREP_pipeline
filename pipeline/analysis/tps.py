@@ -31,6 +31,20 @@ def fit_tps(source, target, lambda_reg=1e-3):
     callable
         ``transform(points)`` maps (M, 2) → (M, 2).
     """
+    source = np.asarray(source, dtype=float)
+    target = np.asarray(target, dtype=float)
+    if source.shape != target.shape or source.ndim != 2 or source.shape[1] != 2:
+        raise ValueError("TPS requires matching (N, 2) arrays")
+    if not np.isfinite(source).all() or not np.isfinite(target).all():
+        raise ValueError("TPS coordinates must be finite")
+    if len(np.unique(source, axis=0)) != len(source):
+        raise ValueError("TPS source landmarks must be distinct")
+    if np.linalg.matrix_rank(np.column_stack([np.ones(len(source)), source])) < 3:
+        raise ValueError("TPS landmarks must not be collinear")
+    # Dimensionless coordinates make regularisation independent of image size.
+    origin = source.mean(axis=0)
+    scale = np.sqrt(np.mean(np.sum((source - origin) ** 2, axis=1)))
+    source = (source - origin) / scale
     n = source.shape[0]
     K = np.zeros((n, n))
     for i in range(n):
@@ -51,6 +65,7 @@ def fit_tps(source, target, lambda_reg=1e-3):
     weights, affine = params[:n], params[n:]
 
     def transform(points):
+        points = (np.asarray(points, dtype=float) - origin) / scale
         m = points.shape[0]
         K_new = np.zeros((m, n))
         for j in range(n):
@@ -70,6 +85,11 @@ def procrustes_align(source, target):
     -------
     source_centered, target_aligned, rotation_matrix
     """
+    source, target = np.asarray(source, float), np.asarray(target, float)
+    if source.shape != target.shape or source.ndim != 2 or source.shape[1] != 2:
+        raise ValueError("Procrustes requires matching (N, 2) arrays")
+    if len(source) < 2 or not np.isfinite([source, target]).all():
+        raise ValueError("Procrustes requires finite landmarks")
     sc = source.mean(axis=0)
     tc = target.mean(axis=0)
     src = source - sc
@@ -79,7 +99,7 @@ def procrustes_align(source, target):
     if np.linalg.det(R) < 0:
         Vt[-1, :] *= -1
         R = U @ Vt
-    return src, tgt @ R.T, R
+    return src, tgt @ R, R
 
 
 def compute_tps_analysis(real_positions, est_positions):
@@ -93,7 +113,9 @@ def compute_tps_analysis(real_positions, est_positions):
         ``valid_landmarks``, ``grid_bounds``.
     """
     valid = [lm for lm in LANDMARK_ORDER
-             if lm in real_positions and lm in est_positions]
+             if lm in real_positions and lm in est_positions
+             and np.isfinite(real_positions[lm]).all()
+             and np.isfinite(est_positions[lm]).all()]
 
     if len(valid) < 5:
         return None
@@ -102,9 +124,11 @@ def compute_tps_analysis(real_positions, est_positions):
     tgt = np.array([est_positions[lm] for lm in valid], dtype=float)
 
     src_p, tgt_p, _ = procrustes_align(src, tgt)
+    if np.linalg.matrix_rank(src_p) < 2:
+        return None
     transform = fit_tps(src_p, tgt_p, lambda_reg=1e-3)
 
-    margin = 50
+    margin = 0.1 * np.max(np.ptp(src_p, axis=0))
     bounds = {
         "x_min": src_p[:, 0].min() - margin,
         "x_max": src_p[:, 0].max() + margin,
@@ -118,4 +142,5 @@ def compute_tps_analysis(real_positions, est_positions):
         "transform": transform,
         "valid_landmarks": valid,
         "grid_bounds": bounds,
+        "interpretation": "Exploratory interpolation; no inference between landmarks",
     }

@@ -15,13 +15,12 @@ def compute_errors(df):
 
 
 def compute_reference_scale(df):
-    """Diagonal of the bounding box of reference points (px)."""
-    pts = df[["x_real", "y_real"]].dropna().to_numpy(dtype=float)
+    """Rotation-invariant RMS radius, weighting each reference landmark equally."""
+    pts = (df.groupby(["finger", "zone"])[["x_real", "y_real"]]
+           .mean().dropna().to_numpy(dtype=float))
     if len(pts) < 2:
         return np.nan
-    rx = pts[:, 0].max() - pts[:, 0].min()
-    ry = pts[:, 1].max() - pts[:, 1].min()
-    scale = np.sqrt(rx ** 2 + ry ** 2)
+    scale = np.sqrt(np.mean(np.sum((pts - pts.mean(axis=0)) ** 2, axis=1)))
     return scale if scale > 0 else np.nan
 
 
@@ -37,6 +36,7 @@ def add_normalized_errors(df, scale):
         out["error_x_norm"] = out["error_x"] / scale
         out["error_y_norm"] = out["error_y"] / scale
     out["normalization_scale"] = scale
+    out["normalization_method"] = "reference_rms_radius_equal_landmark_weight"
     return out
 
 

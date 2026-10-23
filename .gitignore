@@ -11,3 +11,6 @@ data/nn_output/
 data/processed/
 data/ref/
 data/nn_outputs/
+data/processed_*/
+data/validation/
+data/nn_outputs_*/

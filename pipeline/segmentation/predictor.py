@@ -142,7 +142,9 @@ class Predictor:
         dy_norm = float(pred_offset[1])
 
         # Denormalise: Tanh output ∈ [-1, 1] × half → pixel offset
-        final_x = coarse_x + dx_norm * half
-        final_y = coarse_y + dy_norm * half
+        # Offsets are relative to the actual crop centre. A border correction
+        # can move that centre away from the coarse heatmap coordinate.
+        final_x = x1 + (x2 - x1) / 2 + dx_norm * (x2 - x1) / 2
+        final_y = y1 + (y2 - y1) / 2 + dy_norm * (y2 - y1) / 2
 
         return int(round(final_x)), int(round(final_y))

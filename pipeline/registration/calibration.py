@@ -57,9 +57,6 @@ def find_checkerboard_corners(image_path, board_size=(9, 6)):
 
     ret, corners = cv2.findChessboardCorners(gray, board_size, flags)
     if not ret:
-        flipped = (board_size[1], board_size[0])
-        ret, corners = cv2.findChessboardCorners(gray, flipped, flags)
-    if not ret:
         raise ValueError(
             f"Checkerboard {board_size} not found in {image_path}"
         )
@@ -91,6 +88,11 @@ def compute_px_per_cm(corners, square_size_cm=SQUARE_SIZE_CM):
     float
         Pixels per centimetre.
     """
+    corners = np.asarray(corners, dtype=float)
+    if square_size_cm <= 0 or not np.isfinite(square_size_cm):
+        raise ValueError("Checkerboard square size must be positive and finite")
+    if len(corners) < 4 or not np.isfinite(corners).all():
+        raise ValueError("At least four finite calibration corners are required")
     n = len(corners)
     # Pairwise distances (N, N)
     diffs = corners[:, np.newaxis, :] - corners[np.newaxis, :, :]
@@ -102,6 +104,8 @@ def compute_px_per_cm(corners, square_size_cm=SQUARE_SIZE_CM):
 
     # Median is robust to boundary effects
     median_nn_px = float(np.median(nn_dists))
+    if median_nn_px <= 0:
+        raise ValueError("Duplicate calibration corners")
     px_per_cm = median_nn_px / square_size_cm
 
     logger.info(
@@ -115,6 +119,7 @@ def compute_px_per_cm(corners, square_size_cm=SQUARE_SIZE_CM):
 
 def compute_homography_from_images(
     table_path, plateau_path, board_size=(9, 6), square_size_cm=SQUARE_SIZE_CM,
+    max_error_px=2.0, min_inlier_ratio=0.9, camera_path=None,
 ):
     """
     Compute the *plateau → table* homography **and** the metric scale.
@@ -142,6 +147,24 @@ def compute_homography_from_images(
             f"Corner count mismatch: table={len(ct)}, plateau={len(cp)}"
         )
 
+    # Lens parameters are optional, never inferred from only these two views.
+    camera_matrix = dist_coeffs = None
+    if camera_path is not None and Path(camera_path).is_file():
+        with np.load(camera_path, allow_pickle=False) as camera:
+            camera_matrix = camera["camera_matrix"]
+            dist_coeffs = camera["dist_coeffs"]
+        if camera_matrix.shape != (3, 3) or not np.isfinite(camera_matrix).all() or not np.isfinite(dist_coeffs).all():
+            raise ValueError("Invalid camera calibration parameters")
+    from pipeline.registration.correction import undistort_points
+    ct_raw, cp_raw = ct.copy(), cp.copy()
+    ct = undistort_points(ct, camera_matrix, dist_coeffs).astype(float)
+    cp = undistort_points(cp, camera_matrix, dist_coeffs).astype(float)
+
+    table_image = cv2.imread(str(table_path))
+    plateau_image = cv2.imread(str(plateau_path))
+    if table_image.shape[:2] != plateau_image.shape[:2]:
+        raise ValueError("Calibration images must have the same resolution")
+
     # Homography (RANSAC)
     H, mask = cv2.findHomography(
         cp.astype(np.float64), ct.astype(np.float64), cv2.RANSAC, 5.0,
@@ -155,19 +178,52 @@ def compute_homography_from_images(
     from pipeline.registration.correction import apply_homography
     reproj = apply_homography(cp, H)
     err = float(np.linalg.norm(reproj - ct, axis=1).mean())
+    # A deterministic held-out subset detects poor fits beyond training residuals.
+    holdout = np.arange(len(cp)) % 5 == 0
+    H_train, _ = cv2.findHomography(cp[~holdout], ct[~holdout], 0)
+    if H_train is None:
+        raise ValueError("Held-out calibration fit failed")
+    heldout_error = float(np.linalg.norm(apply_homography(cp[holdout], H_train) - ct[holdout], axis=1).mean())
+    if n_inliers / len(cp) < min_inlier_ratio or max(err, heldout_error) > max_error_px:
+        raise ValueError(f"Calibration rejected: fit {err:.2f}px, held-out {heldout_error:.2f}px, inliers {n_inliers}/{len(cp)}")
 
     # Metric scale from table-level corners (= hand plane)
     px_cm = compute_px_per_cm(ct, square_size_cm)
+    # The nearest-neighbour scale is ONLY a display-unit choice. Physical metric
+    # geometry comes from mapping every corner to its known 2-D grid position.
+    cols, rows = board_size
+    grid = np.array([(x, y) for y in range(rows) for x in range(cols)], dtype=float)
+    if len(grid) != len(ct):
+        raise ValueError("Checkerboard corner/grid count mismatch")
+    canonical = grid * square_size_cm * px_cm + ct.min(axis=0)
+    rectification, _ = cv2.findHomography(ct, canonical, 0)
+    rect_train, _ = cv2.findHomography(ct[~holdout], canonical[~holdout], 0)
+    if rectification is None or rect_train is None:
+        raise ValueError("Metric rectification failed")
+    metric_error_cm = float(np.linalg.norm(apply_homography(ct[holdout], rect_train) - canonical[holdout], axis=1).mean() / px_cm)
+    if metric_error_cm * px_cm > max_error_px:
+        raise ValueError(f"Metric rectification rejected: held-out error {metric_error_cm:.4f}cm")
 
     return {
         "homography_matrix":        H,
-        "camera_matrix":            None,
-        "dist_coeffs":              None,
+        "camera_matrix":            camera_matrix,
+        "dist_coeffs":              dist_coeffs,
+        "table_rectification_matrix": rectification,
+        "plateau_rectification_matrix": rectification @ H,
+        "corners_table_raw":        ct_raw,
+        "corners_plateau_raw":      cp_raw,
         "corners_table":            ct,
         "corners_plateau":          cp,
         "n_inliers":                n_inliers,
         "n_total":                  len(cp),
         "mean_reprojection_error":  err,
+        "heldout_error_px":         heldout_error,
+        "heldout_metric_error_cm":  metric_error_cm,
+        "image_width":              int(table_image.shape[1]),
+        "image_height":             int(table_image.shape[0]),
+        "coordinate_space":         "rectified_hand_plane_px",
+        "lens_distortion_corrected": camera_matrix is not None,
+        "validation_scope": "held_out_corners_same_images; independent physical validation still required",
         "px_per_cm":                px_cm,
         "cm_per_px":                1.0 / px_cm,
     }

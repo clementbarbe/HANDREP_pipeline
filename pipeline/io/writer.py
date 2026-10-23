@@ -16,8 +16,8 @@ _TRIAL_COLUMNS = [
 
 
 def save_trial_csv(df, path):
-    cols = [c for c in _TRIAL_COLUMNS if c in df.columns]
-    df[cols].to_csv(Path(path), index=False)
+    # Preserve QC, condition provenance, anatomical errors and original coordinates.
+    df.to_csv(Path(path), index=False)
 
 
 def save_summary_csv(df, path):

@@ -10,6 +10,9 @@ def plot_calibration_check(calib, table_path, plateau_path, output_path):
     """Show detected corners, reprojection, and px/cm scale."""
     timg = cv2.cvtColor(cv2.imread(str(table_path)), cv2.COLOR_BGR2RGB)
     pimg = cv2.cvtColor(cv2.imread(str(plateau_path)), cv2.COLOR_BGR2RGB)
+    if calib.get("camera_matrix") is not None:
+        timg = cv2.undistort(timg, calib["camera_matrix"], calib["dist_coeffs"])
+        pimg = cv2.undistort(pimg, calib["camera_matrix"], calib["dist_coeffs"])
 
     ct = calib["corners_table"]
     cp = calib["corners_plateau"]
@@ -37,6 +40,7 @@ def plot_calibration_check(calib, table_path, plateau_path, output_path):
         f"table.png — reproj err = "
         f"{calib['mean_reprojection_error']:.2f} px"
     )
+    title += f"\nHeld-out corners: {calib['heldout_error_px']:.2f} px (same images)"
     if px_cm is not None:
         title += f"\nScale: {px_cm:.1f} px/cm  ({cm_px:.4f} cm/px)"
     ax.set_title(title)

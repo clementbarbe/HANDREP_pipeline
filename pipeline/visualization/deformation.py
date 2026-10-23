@@ -45,7 +45,7 @@ def plot_deformation_maps(analysis, output_dir, cfg):
     fig, axes = plt.subplots(1, 2, figsize=(18, 9))
     for ax_idx, (pts, title, ls) in enumerate([
         (source, "Actual hand (reference grid)", "-"),
-        (target, "Proprioceptive representation (deformed grid)", "--"),
+        (target, "Mean localization map (exploratory TPS interpolation)", "--"),
     ]):
         ax = axes[ax_idx]; ax.set_title(title, fontsize=14)
         if ax_idx == 0:
@@ -77,7 +77,7 @@ def plot_deformation_maps(analysis, output_dir, cfg):
 
     # ── Figure 06: overlay ─────────────────────────────────
     fig, ax = plt.subplots(figsize=(12, 10))
-    ax.set_title("Overlay: actual (●) vs proprioceptive (○) with TPS grid", fontsize=14)
+    ax.set_title("Reference (●) vs mean localization (○): exploratory TPS", fontsize=14)
 
     for x in gx:
         lp = np.column_stack([np.full(100, x), np.linspace(b["y_min"], b["y_max"], 100)])

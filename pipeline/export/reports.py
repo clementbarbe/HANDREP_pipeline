@@ -3,6 +3,7 @@ Save all output CSVs for one (subject, session) pair.
 """
 
 from pathlib import Path
+import pandas as pd
 from pipeline.io.writer import save_trial_csv, save_summary_csv, save_biomech_csv
 
 
@@ -77,3 +78,17 @@ def export_all_csvs(analysis, out_dir, subject, session):
             out_dir / f"{prefix}_results_couple_distances.csv",
             index=False, sep=";",
         )
+
+    for key in ("finger_lengths_coupled", "finger_lengths_uncoupled", "couple_distances",
+                "finger_lengths_by_direction", "coupling_comparison", "bias_precision",
+                "geometry_decomposition", "temporal_models", "reference_audit",
+                "pointer_validation_trials", "pointer_validation_summary"):
+        table = analysis.get(key)
+        if table is not None:
+            # Write empty outputs too: stale results from an earlier run must not survive.
+            if not len(table.columns):
+                table = pd.DataFrame(columns=["status", "n_annotated"])
+            table.to_csv(out_dir / f"{prefix}_results_{key}.csv", index=False, sep=";")
+    if analysis.get("shape_indices") is not None:
+        pd.DataFrame([analysis["shape_indices"]]).to_csv(
+            out_dir / f"{prefix}_results_shape_indices.csv", index=False, sep=";")
